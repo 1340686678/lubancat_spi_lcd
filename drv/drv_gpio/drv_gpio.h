@@ -4,9 +4,11 @@
 #include <gpiod.h>
 #include <stdint.h>
 
+#define GPIO_NAME_LEN 20
+
 typedef struct
 {
-	char name[10];
+	char name[GPIO_NAME_LEN];
 	struct gpiod_chip* chip;	//GPIO控制器句柄
 	struct gpiod_line* line;	//GPIO引脚句柄
 }M_GPIO_INFO_T;
@@ -26,7 +28,7 @@ typedef enum
 
 typedef struct
 {
-	char name[10];
+	char name[GPIO_NAME_LEN];
 	uint8_t port;	//GPIO1_B3 port=1
 	uint8_t pin;	//GPIO1_B3 pin=1*8+3
 	M_GPIO_WORK_MODE_T mode;
@@ -37,5 +39,6 @@ int drv_gpio_get(const M_GPIO_INIT_PARAM_T param, M_GPIO_INFO_T* info);
 void drv_gpio_release(M_GPIO_INFO_T* info);
 
 int drv_gpio_set_status(const M_GPIO_INFO_T* info, const M_GPIO_STATUS_T status);
+M_GPIO_STATUS_T drv_gpio_get_status(const M_GPIO_INFO_T* info);
 
 #endif

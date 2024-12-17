@@ -3,6 +3,12 @@
 		"stdio.h": "c",
 		"gpiod.h": "c",
 		"stdlib.h": "c",
-		"drv_gpio.h": "c"
+		"drv_gpio.h": "c",
+		"unistd.h": "c",
+		"drv_lcd.h": "c",
+		"error.h": "c",
+		"log.h": "c",
+		"drv_init.h": "c",
+		"stdint.h": "c"
 	}
 }

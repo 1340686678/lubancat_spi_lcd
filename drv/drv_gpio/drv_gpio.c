@@ -1,4 +1,7 @@
 #include "drv_gpio.h"
+
+#include "common/log.h"
+
 #include <string.h>
 #include <stdio.h>
 
@@ -17,43 +20,46 @@ int drv_gpio_get(const M_GPIO_INIT_PARAM_T param, M_GPIO_INFO_T* info)
 	memcpy(info->name, param.name, sizeof(param.name));
 
 	/*获取GPIO控制器*/
-	printf(" gpiod_chip_open \r\n");
 	char path[20];
 	sprintf(path, "/dev/gpiochip%d", param.port);
 	info->chip = gpiod_chip_open(path);
 	if(info->chip == NULL)
 	{
-			printf("gpio%d gpiod_chip_open error\n", param.port);
-			return -1;
+		LOG_WARNING("gpio%d gpiod_chip_open error\n", param.port);
+		return -1;
 	}
 
 	int ret = 0;
 
 	/*获取GPIO引脚*/
-	printf(" gpiod_chip_get_line \r\n");
 	info->line = gpiod_chip_get_line(info->chip, param.pin);
 	if(info->line == NULL)
 	{
 		ret = -1;
-		printf("gpiod_chip_get_line error\n");
+		LOG_WARNING("gpiod_chip_get_line error\n");
 		goto release_chip;
 	}
 
 	/*配置GPIO工作模式*/
-	printf(" gpiod_line_request_output \r\n");
 	if(param.mode == GPIO_OUTPUT)
 	{
 		/*设置GPIO为输出模式*/
 		int ret = gpiod_line_request_output(info->line, info->name, param.status);
 		if(ret < 0)
 		{
-			printf("gpiod_line_request_output error\n");
+			LOG_WARNING("gpiod_line_request_output error\n");
 			goto release_line;
 		}
 	}
 	else
 	{
-
+		/*设置GPIO为输入模式*/
+		int ret = gpiod_line_request_input(info->line, info->name);
+		if(ret < 0)
+		{
+			LOG_WARNING("gpiod_line_request_output error\n");
+			goto release_line;
+		}
 	}
 
 	return 0;
@@ -108,4 +114,19 @@ void drv_gpio_release(M_GPIO_INFO_T* info)
 int drv_gpio_set_status(const M_GPIO_INFO_T* info, const M_GPIO_STATUS_T status)
 {
 	return gpiod_line_set_value(info->line, status == GPIO_ON ? 1 : 0);
+}
+
+/***************************************************************
+ * Name:	 drv_gpio_set_status()
+ * Input : info:IO信息 status:IO状态
+ * Output: void
+ * Return: void
+ * Author: hwl
+ * Revise: V1.0
+ * Description: 设置IO输出
+ ***************************************************************/
+M_GPIO_STATUS_T drv_gpio_get_status(const M_GPIO_INFO_T* info)
+{
+	return gpiod_line_get_value(info->line) == 1 ? GPIO_ON : GPIO_OFF;
+
 }
