@@ -23,6 +23,12 @@ static M_GPIO_INFO_T lcd_rs_info = {
 	.name = "",
 };
 
+static M_GPIO_INFO_T lcd_cs_info = {
+	.chip = NULL,
+	.line = NULL,
+	.name = "",
+};
+
 /***************************************************************
  * Name:	 drv_lcd_gpio_init()
  * Input : void
@@ -57,8 +63,23 @@ static int drv_lcd_gpio_init(void)
 	{
 		goto lcd_rs_get_fail;
 	}
+
+	M_GPIO_INIT_PARAM_T cs_param = {
+		.mode = GPIO_OUTPUT,
+		.name = LCD_LCD_CS_NAME,
+		.pin = LCD_LCD_CS_PIN,
+		.port = LCD_LCD_CS_PORT,
+		.status = GPIO_ON,
+	};
+	if(drv_gpio_get(cs_param, &lcd_cs_info) < 0)
+	{
+		goto lcd_cs_get_fail;
+	}
+
 	return 0;
 
+lcd_cs_get_fail:
+	drv_gpio_release(&lcd_rs_info);
 lcd_rs_get_fail:
 	drv_gpio_release(&lcd_rst_info);
 lcd_rst_get_fail:
@@ -181,6 +202,10 @@ static uint8_t spi_r_data(void)
 	return rx_buffer;
 } 
 
+/* SET 未选中 CLR 选中 */
+#define LCD_CS_SET drv_gpio_set_status(&lcd_cs_info, GPIO_OFF)
+#define LCD_CS_CLR drv_gpio_set_status(&lcd_cs_info, GPIO_OFF)
+
 /* SET 命令 CLR 数据 */
 #define LCD_RS_SET drv_gpio_set_status(&lcd_rs_info, GPIO_ON)
 #define LCD_RS_CLR drv_gpio_set_status(&lcd_rs_info, GPIO_OFF)
@@ -219,7 +244,9 @@ uint16_t POINT_COLOR = 0x0000,BACK_COLOR = 0xFFFF;
 static void lcd_w_cmd(uint8_t cmd)
 {
 	LCD_RS_CLR;
+	LCD_CS_CLR;
 	spi_w_data(cmd);
+	LCD_CS_SET;
 }
 
 /***************************************************************
@@ -234,7 +261,9 @@ static void lcd_w_cmd(uint8_t cmd)
 static void lcd_w_data(uint8_t data)
 {
 	LCD_RS_SET;
+	LCD_CS_CLR;
 	spi_w_data(data);
+	LCD_CS_SET;
 }
 
 /***************************************************************
@@ -250,7 +279,9 @@ static uint8_t lcd_r_data(void)
 {
 	uint8_t data;
 	LCD_RS_SET;
+	LCD_CS_CLR;
 	data = spi_r_data();
+	LCD_CS_SET;
 	return data;
 }
 
@@ -294,10 +325,12 @@ uint8_t lcd_r_reg(uint8_t reg)
  * Description: 写入16bit数据
  ***************************************************************/
 void lcd_w_data_16bit(uint16_t Data)
-{	
+{
 	LCD_RS_SET;
+	LCD_CS_CLR;
 	spi_w_data(Data>>8);
 	spi_w_data(Data);
+	LCD_CS_SET;
 }
 
 /***************************************************************
@@ -366,17 +399,19 @@ void lcd_draw_point(uint16_t x,uint16_t y)
  ***************************************************************/
 void lcd_fill(uint16_t Color)
 {
-  unsigned int i,m;  
-	lcd_set_windows(0,0,g_lcd_param.width-1,g_lcd_param.height-1);   
+	unsigned int i,m;
+	lcd_set_windows(0,0,g_lcd_param.width-1,g_lcd_param.height-1);
+	LCD_CS_CLR;
 	LCD_RS_SET;
 	for(i=0;i<g_lcd_param.height;i++)
 	{
-    for(m=0;m<g_lcd_param.width;m++)
-    {	
+		for(m=0;m<g_lcd_param.width;m++)
+		{
 			spi_w_data(Color>>8);
 			spi_w_data(Color);
 		}
 	}
+	LCD_CS_SET;
 } 
 
 /***************************************************************
@@ -465,9 +500,6 @@ static uint16_t lcd_read_id(void)
 {
 	uint8_t i,val[3] = {0};
 	uint16_t id;
-	
-	unsigned char tx_buffer = 0;
-	unsigned char rx_buffer = 0;
 
 	for(i=1;i<4;i++)
 	{

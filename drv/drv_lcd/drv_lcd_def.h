@@ -3,8 +3,8 @@
 
 /*LCD_LCD_CS GPIO1_B4*/
 #define LCD_LCD_CS_NAME		"LCD_LCD_CS"
-#define LCD_LCD_CS_PORT		1
-#define LCD_LCD_CS_PIN		12
+#define LCD_LCD_CS_PORT		3
+#define LCD_LCD_CS_PIN		13
 
 /*LCD_LCD_RST GPIO3_D4*/
 #define LCD_LCD_RST_NAME	"LCD_LCD_RST"
