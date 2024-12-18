@@ -1,5 +1,6 @@
 #include "drv_init.h"
 #include "drv_lcd/drv_lcd.h"
+#include "drv_lcd/drv_lcd_touch.h"
 
 #include "common/log.h"
 
@@ -21,12 +22,16 @@ int drv_init(void)
 {
 	static struct init_drv_list
 	{
-		char name[20];
+		char name[50];
 		init_func func;
 	} init_list_t[] = {
-		[0] = {
+		{
 			.name = "SPI_LCD",
 			.func = drv_lcd_init
+		},
+		{
+			.name = "I2C_LCD_TOUCH",
+			.func = drv_lcd_touch_init
 		},
 	};
 
