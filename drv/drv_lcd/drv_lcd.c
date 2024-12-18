@@ -88,7 +88,7 @@ lcd_rst_get_fail:
 
 #define SPI_DEV_PATH "/dev/spidev0.0"
 
-int fd;
+static int g_spi_fd;
 /***************************************************************
  * Name:	 spi_init()
  * Input : void
@@ -98,44 +98,50 @@ int fd;
  * Revise: V1.0
  * Description: lcd的spi初始化
  ***************************************************************/
-static void spi_init(void)
+static int spi_init(void)
 {
 	int ret = 0;
 	//打开 SPI 设备
-	fd = open(SPI_DEV_PATH, O_RDWR);
-	if(fd < 0)
+	g_spi_fd = open(SPI_DEV_PATH, O_RDWR);
+	if(g_spi_fd < 0)
 	{
 		LOG_ERROR("LCD_SPI can't open PATH:%s\n",SPI_DEV_PATH);
+		return -1;
 	}
 
 	//设置 SPI 工作模式
 	unsigned mode = SPI_MODE_0;
-	ret = ioctl(fd, SPI_IOC_WR_MODE32, &mode);
+	ret = ioctl(g_spi_fd, SPI_IOC_WR_MODE32, &mode);
 	if (ret == -1)
 	{
 		LOG_ERROR("LCD_SPI can't set spi mode\n");
+		return -1;
 	}
 
 	//设置一个字节的位数
 	uint8_t bits = 8;
-	ret = ioctl(fd, SPI_IOC_WR_BITS_PER_WORD, &bits);
+	ret = ioctl(g_spi_fd, SPI_IOC_WR_BITS_PER_WORD, &bits);
 	if (ret == -1)
 	{
 		LOG_ERROR("can't set bits per word\n");
+		return -1;
 	}
 
 	//设置 SPI 最高工作频率
 	uint32_t speed = 10000000;
-	ret = ioctl(fd, SPI_IOC_WR_MAX_SPEED_HZ, &speed);
+	ret = ioctl(g_spi_fd, SPI_IOC_WR_MAX_SPEED_HZ, &speed);
 	if (ret == -1)
 	{
 		LOG_ERROR("can't set max speed hz\n");
+		return -1;
 	}
+
+	return 0;
 }
 
 /***************************************************************
  * Name:	 spi_transfer()
- * Input : fd:SPI设备描述符 tx:发送数据 rx:接收数据 len:发送数据长度(单位，字节)
+ * Input : g_spi_fd:SPI设备描述符 tx:发送数据 rx:接收数据 len:发送数据长度(单位，字节)
  * Output: void
  * Return: void
  * Author: hwl
@@ -143,7 +149,7 @@ static void spi_init(void)
  * Description: spi参数数据
  * 如果 只读不发送 tx设为0x00
  ***************************************************************/
-static void spi_transfer(int fd, uint8_t const *tx, uint8_t const *rx, size_t len)
+static void spi_transfer(int g_spi_fd, uint8_t const *tx, uint8_t const *rx, size_t len)
 {
 	int ret;
 
@@ -158,7 +164,7 @@ static void spi_transfer(int fd, uint8_t const *tx, uint8_t const *rx, size_t le
 		.rx_nbits = 1
 	};
 
-	ret = ioctl(fd, SPI_IOC_MESSAGE(1), &tr);
+	ret = ioctl(g_spi_fd, SPI_IOC_MESSAGE(1), &tr);
 	
 	if (ret < 1)
 	{
@@ -180,7 +186,7 @@ static void spi_w_data(uint8_t data)
 	uint8_t tx_buffer = data;
 	uint8_t rx_buffer = 0;
 
-	spi_transfer(fd, &tx_buffer, &rx_buffer, 1);
+	spi_transfer(g_spi_fd, &tx_buffer, &rx_buffer, 1);
 }
 
 /***************************************************************
@@ -197,7 +203,7 @@ static uint8_t spi_r_data(void)
 	uint8_t tx_buffer = 0;
 	uint8_t rx_buffer = 0;
 
-	spi_transfer(fd, &tx_buffer, &rx_buffer, 1);
+	spi_transfer(g_spi_fd, &tx_buffer, &rx_buffer, 1);
 
 	return rx_buffer;
 } 
@@ -530,10 +536,21 @@ int drv_lcd_init(void)
 	if(drv_lcd_gpio_init() < 0)
 	{
 		LOG_ERROR("LCD GPIO INIT FAIL");
+		return -1;
 	}
-	spi_init();
+	if(spi_init() < 0)
+	{
+		LOG_ERROR("LCD SPI INIT FAIL");
+		return -1;
+	}
+
  	lcd_reset();
-	printf("READ ID %x\r\n", lcd_read_id());
+	
+	if(lcd_read_id() != 0x9341)
+	{
+		LOG_ERROR("LCD READ ID FAIL");
+		return -1;
+	}
 
 	lcd_w_cmd(0xCF);
 	lcd_w_data(0x00);
@@ -645,4 +662,6 @@ int drv_lcd_init(void)
 	lcd_direction(0);	//设置LCD显示方向 
 	
 	lcd_fill(DARKBLUE);
+
+	return 0;
 }
