@@ -230,8 +230,6 @@ typedef struct
 
 static _lcd_dev g_lcd_param;
 
-uint16_t POINT_COLOR = 0x0000,BACK_COLOR = 0xFFFF;  
-
 /***************************************************************
  * Name:	 lcd_w_cmd()
  * Input : cmd:写的指令
@@ -382,10 +380,10 @@ void lcd_set_cursor(uint16_t Xpos, uint16_t Ypos)
  * Revise: V1.0
  * Description: 绘制一个点
  ***************************************************************/
-void lcd_draw_point(uint16_t x,uint16_t y)
+void lcd_draw_point(uint16_t x,uint16_t y, uint16_t color)
 {
 	lcd_set_cursor(x,y);	//设置光标位置 
-	lcd_w_data_16bit(POINT_COLOR);
+	lcd_w_data_16bit(color);
 }
 
 /***************************************************************
@@ -397,7 +395,7 @@ void lcd_draw_point(uint16_t x,uint16_t y)
  * Revise: V1.0
  * Description: 填充屏幕
  ***************************************************************/
-void lcd_fill(uint16_t Color)
+void lcd_fill(uint16_t color)
 {
 	unsigned int i,m;
 	lcd_set_windows(0,0,g_lcd_param.width-1,g_lcd_param.height-1);
@@ -407,8 +405,8 @@ void lcd_fill(uint16_t Color)
 	{
 		for(m=0;m<g_lcd_param.width;m++)
 		{
-			spi_w_data(Color>>8);
-			spi_w_data(Color);
+			spi_w_data(color>>8);
+			spi_w_data(color);
 		}
 	}
 	LCD_CS_SET;
