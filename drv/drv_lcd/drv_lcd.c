@@ -11,13 +11,6 @@
 #include <stdio.h>
 #include <linux/spi/spidev.h>
 
-
-static M_GPIO_INFO_T lcd_cs_info = {
-	.chip = NULL,
-	.line = NULL,
-	.name = "",
-};
-
 static M_GPIO_INFO_T lcd_rst_info = {
 	.chip = NULL,
 	.line = NULL,
@@ -25,24 +18,6 @@ static M_GPIO_INFO_T lcd_rst_info = {
 };
 
 static M_GPIO_INFO_T lcd_rs_info = {
-	.chip = NULL,
-	.line = NULL,
-	.name = "",
-};
-
-static M_GPIO_INFO_T lcd_mosi_info = {
-	.chip = NULL,
-	.line = NULL,
-	.name = "",
-};
-
-static M_GPIO_INFO_T lcd_sck_info = {
-	.chip = NULL,
-	.line = NULL,
-	.name = "",
-};
-
-static M_GPIO_INFO_T lcd_miso_info = {
 	.chip = NULL,
 	.line = NULL,
 	.name = "",
@@ -59,18 +34,6 @@ static M_GPIO_INFO_T lcd_miso_info = {
  ***************************************************************/
 static int drv_lcd_gpio_init(void)
 {
-	M_GPIO_INIT_PARAM_T cs_param = {
-		.mode = GPIO_OUTPUT,
-		.name = LCD_LCD_CS_NAME,
-		.pin = LCD_LCD_CS_PIN,
-		.port = LCD_LCD_CS_PORT,
-		.status = GPIO_OFF,
-	};
-	if(drv_gpio_get(cs_param, &lcd_cs_info) < 0)
-	{
-		goto lcd_cs_get_fail;
-	}
-
 	M_GPIO_INIT_PARAM_T rst_param = {
 		.mode = GPIO_OUTPUT,
 		.name = LCD_LCD_RST_NAME,
@@ -94,73 +57,135 @@ static int drv_lcd_gpio_init(void)
 	{
 		goto lcd_rs_get_fail;
 	}
-	
-	M_GPIO_INIT_PARAM_T mosi_param = {
-		.mode = GPIO_OUTPUT,
-		.name = LCD_LCD_MOSI_NAME,
-		.pin = LCD_LCD_MOSI_PIN,
-		.port = LCD_LCD_MOSI_PORT,
-		.status = GPIO_ON,
-	};
-	if(drv_gpio_get(mosi_param, &lcd_mosi_info) < 0)
-	{
-		goto lcd_mosi_get_fail;
-	}
-
-	M_GPIO_INIT_PARAM_T sck_param = {
-		.mode = GPIO_OUTPUT,
-		.name = LCD_LCD_SCK_NAME,
-		.pin = LCD_LCD_SCK_PIN,
-		.port = LCD_LCD_SCK_PORT,
-		.status = GPIO_OFF,
-	};
-	if(drv_gpio_get(sck_param, &lcd_sck_info) < 0)
-	{
-		goto lcd_sck_get_fail;
-	}
-
-	M_GPIO_INIT_PARAM_T miso_param = {
-		.mode = GPIO_INPUT,
-		.name = LCD_LCD_MISO_NAME,
-		.pin = LCD_LCD_MISO_PIN,
-		.port = LCD_LCD_MISO_PORT,
-		.status = GPIO_OFF,
-	};
-	if(drv_gpio_get(miso_param, &lcd_miso_info) < 0)
-	{
-		goto lcd_miso_get_fail;
-	}
-
 	return 0;
 
-lcd_miso_get_fail:
-	drv_gpio_release(&lcd_sck_info);
-lcd_sck_get_fail:
-	drv_gpio_release(&lcd_mosi_info);
-lcd_mosi_get_fail:
-	drv_gpio_release(&lcd_rs_info);
 lcd_rs_get_fail:
 	drv_gpio_release(&lcd_rst_info);
 lcd_rst_get_fail:
-	drv_gpio_release(&lcd_cs_info);
-lcd_cs_get_fail:
 	return -1;
 }
 
-#define SPI_MOSI_SET drv_gpio_set_status(&lcd_mosi_info, GPIO_ON)
-#define SPI_MOSI_CLR drv_gpio_set_status(&lcd_mosi_info, GPIO_OFF)
+#define SPI_DEV_PATH "/dev/spidev0.0"
 
-#define SPI_SCLK_SET drv_gpio_set_status(&lcd_sck_info, GPIO_ON)
-#define SPI_SCLK_CLR drv_gpio_set_status(&lcd_sck_info, GPIO_OFF)
+int fd;
+/***************************************************************
+ * Name:	 spi_init()
+ * Input : void
+ * Output: void
+ * Return: void
+ * Author: hwl
+ * Revise: V1.0
+ * Description: lcd的spi初始化
+ ***************************************************************/
+static void spi_init(void)
+{
+	int ret = 0;
+	//打开 SPI 设备
+	fd = open(SPI_DEV_PATH, O_RDWR);
+	if(fd < 0)
+	{
+		LOG_ERROR("LCD_SPI can't open PATH:%s\n",SPI_DEV_PATH);
+	}
 
-#define SPI_MISO_READ (drv_gpio_get_status(&lcd_miso_info) == GPIO_ON)
+	//设置 SPI 工作模式
+	unsigned mode = SPI_MODE_0;
+	ret = ioctl(fd, SPI_IOC_WR_MODE32, &mode);
+	if (ret == -1)
+	{
+		LOG_ERROR("LCD_SPI can't set spi mode\n");
+	}
 
-#define LCD_CS_SET drv_gpio_set_status(&lcd_cs_info, GPIO_ON)
-#define LCD_CS_CLR drv_gpio_set_status(&lcd_cs_info, GPIO_OFF)
+	//设置一个字节的位数
+	uint8_t bits = 8;
+	ret = ioctl(fd, SPI_IOC_WR_BITS_PER_WORD, &bits);
+	if (ret == -1)
+	{
+		LOG_ERROR("can't set bits per word\n");
+	}
 
+	//设置 SPI 最高工作频率
+	uint32_t speed = 10000000;
+	ret = ioctl(fd, SPI_IOC_WR_MAX_SPEED_HZ, &speed);
+	if (ret == -1)
+	{
+		LOG_ERROR("can't set max speed hz\n");
+	}
+}
+
+/***************************************************************
+ * Name:	 spi_transfer()
+ * Input : fd:SPI设备描述符 tx:发送数据 rx:接收数据 len:发送数据长度(单位，字节)
+ * Output: void
+ * Return: void
+ * Author: hwl
+ * Revise: V1.0
+ * Description: spi参数数据
+ * 如果 只读不发送 tx设为0x00
+ ***************************************************************/
+static void spi_transfer(int fd, uint8_t const *tx, uint8_t const *rx, size_t len)
+{
+	int ret;
+
+	struct spi_ioc_transfer tr = {
+		.tx_buf = (unsigned long)tx,
+		.rx_buf = (unsigned long)rx,
+		.len = len,
+		.delay_usecs = 0,
+		.speed_hz = 10000000,
+		.bits_per_word = 8,
+		.tx_nbits = 1,
+		.rx_nbits = 1
+	};
+
+	ret = ioctl(fd, SPI_IOC_MESSAGE(1), &tr);
+	
+	if (ret < 1)
+	{
+		LOG_WARNING("can't send spi message\n");
+	}
+}
+
+/***************************************************************
+ * Name:	 spi_w_data()
+ * Input : data:写的数据
+ * Output: void
+ * Return: void
+ * Author: hwl
+ * Revise: V1.0
+ * Description: spi发送
+ ***************************************************************/
+static void spi_w_data(uint8_t data)
+{
+	uint8_t tx_buffer = data;
+	uint8_t rx_buffer = 0;
+
+	spi_transfer(fd, &tx_buffer, &rx_buffer, 1);
+}
+
+/***************************************************************
+ * Name:	 spi_r_data()
+ * Input : void
+ * Output: void
+ * Return: 接收到的数据
+ * Author: hwl
+ * Revise: V1.0
+ * Description: spi接收
+ ***************************************************************/
+static uint8_t spi_r_data(void)
+{
+	uint8_t tx_buffer = 0;
+	uint8_t rx_buffer = 0;
+
+	spi_transfer(fd, &tx_buffer, &rx_buffer, 1);
+
+	return rx_buffer;
+} 
+
+/* SET 命令 CLR 数据 */
 #define LCD_RS_SET drv_gpio_set_status(&lcd_rs_info, GPIO_ON)
 #define LCD_RS_CLR drv_gpio_set_status(&lcd_rs_info, GPIO_OFF)
 
+/* SET 运行 CLR 复位 */
 #define LCD_RST_SET drv_gpio_set_status(&lcd_rst_info, GPIO_ON)
 #define LCD_RST_CLR drv_gpio_set_status(&lcd_rst_info, GPIO_OFF)
 
@@ -168,105 +193,99 @@ lcd_cs_get_fail:
 
 //LCD重要参数集
 typedef struct  
-{										    
-	uint16_t width;			//LCD 宽度
-	uint16_t height;			//LCD 高度
-	uint16_t id;				  //LCD ID
-	uint8_t		dir;			  //横屏还是竖屏控制：0，竖屏；1，横屏。	
-	uint16_t	 wramcmd;		//开始写gram指令
-	uint16_t  rramcmd;   //开始读gram指令
-	uint16_t  setxcmd;		//设置x坐标指令
-	uint16_t  setycmd;		//设置y坐标指令	 
+{
+	uint16_t width;		//LCD 宽度
+	uint16_t height;	//LCD 高度
+	uint8_t dir;			//横屏还是竖屏控制：0，竖屏；1，横屏。
+	uint16_t wramcmd;	//开始写gram指令
+	uint16_t rramcmd;	//开始读gram指令
+	uint16_t setxcmd;	//设置x坐标指令
+	uint16_t setycmd;	//设置y坐标指令
 }_lcd_dev;
 
-static _lcd_dev lcddev;
+static _lcd_dev g_lcd_param;
 
 uint16_t POINT_COLOR = 0x0000,BACK_COLOR = 0xFFFF;  
 
-static void SPI_WriteByte(uint8_t Byte)
+/***************************************************************
+ * Name:	 lcd_w_cmd()
+ * Input : cmd:写的指令
+ * Output: void
+ * Return: void
+ * Author: hwl
+ * Revise: V1.0
+ * Description: 向lcd写指令
+ ***************************************************************/
+static void lcd_w_cmd(uint8_t cmd)
 {
-	uint8_t i=0;
-	for(i=0;i<8;i++)
-	{
-		if(Byte&0x80)
-		{
-			SPI_MOSI_SET;
-		}
-		else
-		{
-			SPI_MOSI_CLR;
-		}
-		SPI_SCLK_CLR;
-		SPI_SCLK_SET;
-		Byte<<=1;
-	}
-}
-
-static uint8_t SPI_ReadByte(void)
-{
-	uint8_t value=0,i=0,byte=0xFF;
-	for(i=0;i<8;i++)
-	{
-		value<<=1;
-		if(byte&0x80)
-		{
-			SPI_MOSI_SET;
-		}
-		else
-		{
-			SPI_MOSI_CLR;
-		}
-		byte<<=1;
-		SPI_SCLK_CLR;
-		if(SPI_MISO_READ)
-		{
-			value += 1;
-		}
-		SPI_SCLK_SET;	
-	}
-	return value;
-} 
-
-static void LCD_WR_REG(uint8_t data)
-{ 
-   LCD_CS_CLR;     
-	 LCD_RS_CLR;	  
-   SPI_WriteByte(data);
-   LCD_CS_SET;	
-}
-
-static void LCD_WR_DATA(uint8_t data)
-{
-   LCD_CS_CLR;
-	 LCD_RS_SET;
-   SPI_WriteByte(data);
-   LCD_CS_SET;
-}
-
-static uint8_t LCD_RD_DATA(void)
-{
-	 uint8_t data;
-	 LCD_CS_CLR;
-	 LCD_RS_SET;
-	 data = SPI_ReadByte();
-	 LCD_CS_SET;
-	 return data;
-}
-
-void LCD_WriteReg(uint8_t LCD_Reg, uint16_t LCD_RegValue)
-{	
-	LCD_WR_REG(LCD_Reg);
-	LCD_WR_DATA(LCD_RegValue);
-}
-
-uint8_t LCD_ReadReg(uint8_t LCD_Reg)
-{
-	LCD_WR_REG(LCD_Reg);
-  return LCD_RD_DATA();
+	LCD_RS_CLR;
+	spi_w_data(cmd);
 }
 
 /***************************************************************
- * Name:	 Lcd_WriteData_16Bit()
+ * Name:	 lcd_w_data()
+ * Input : data:写的数据
+ * Output: void
+ * Return: void
+ * Author: hwl
+ * Revise: V1.0
+ * Description: 向lcd写数据
+ ***************************************************************/
+static void lcd_w_data(uint8_t data)
+{
+	LCD_RS_SET;
+	spi_w_data(data);
+}
+
+/***************************************************************
+ * Name:	 lcd_r_data()
+ * Input : void
+ * Output: void
+ * Return: 接收到的数据
+ * Author: hwl
+ * Revise: V1.0
+ * Description: 向lcd读数据
+ ***************************************************************/
+static uint8_t lcd_r_data(void)
+{
+	uint8_t data;
+	LCD_RS_SET;
+	data = spi_r_data();
+	return data;
+}
+
+/***************************************************************
+ * Name:	 lcd_w_reg()
+ * Input : reg:寄存器 data:写入的数据
+ * Output: void
+ * Return: void
+ * Author: hwl
+ * Revise: V1.0
+ * Description: 写lcd寄存器数据
+ ***************************************************************/
+void lcd_w_reg(uint8_t reg, uint16_t data)
+{	
+	lcd_w_cmd(reg);
+	lcd_w_data(data);
+}
+
+/***************************************************************
+ * Name:	 lcd_r_reg()
+ * Input : reg:寄存器
+ * Output: void
+ * Return: 寄存器数据
+ * Author: hwl
+ * Revise: V1.0
+ * Description: 读lcd寄存器数据
+ ***************************************************************/
+uint8_t lcd_r_reg(uint8_t reg)
+{
+	lcd_w_cmd(reg);
+  return lcd_r_data();
+}
+
+/***************************************************************
+ * Name:	 lcd_w_data_16bit()
  * Input : Data:需要写入的数据
  * Output: void
  * Return: void
@@ -274,44 +293,41 @@ uint8_t LCD_ReadReg(uint8_t LCD_Reg)
  * Revise: V1.0
  * Description: 写入16bit数据
  ***************************************************************/
-void Lcd_WriteData_16Bit(uint16_t Data)
+void lcd_w_data_16bit(uint16_t Data)
 {	
-	LCD_CS_CLR;
-	LCD_RS_SET;  
-	SPI_WriteByte(Data>>8);
-	SPI_WriteByte(Data);
-
-	LCD_CS_SET;
+	LCD_RS_SET;
+	spi_w_data(Data>>8);
+	spi_w_data(Data);
 }
 
 /***************************************************************
- * Name:	 LCD_SetWindows()
- * Input : Data:需要写入的数据
+ * Name:	 lcd_set_windows()
+ * Input : xStar:窗口开始X点 yStar:窗口开始Y点 xEnd:窗口结束Y点 yEnd:窗口结束Y点 
  * Output: void
  * Return: void
  * Author: hwl
  * Revise: V1.0
  * Description: 设置操作窗口
  ***************************************************************/
-void LCD_SetWindows(uint16_t xStar, uint16_t yStar,uint16_t xEnd,uint16_t yEnd)
+void lcd_set_windows(uint16_t x_star, uint16_t y_star,uint16_t x_end,uint16_t y_end)
 {	
-	LCD_WR_REG(lcddev.setxcmd);
-	LCD_WR_DATA(xStar>>8);
-	LCD_WR_DATA(0x00FF&xStar);
-	LCD_WR_DATA(xEnd>>8);
-	LCD_WR_DATA(0x00FF&xEnd);
+	lcd_w_cmd(g_lcd_param.setxcmd);
+	lcd_w_data(x_star>>8);
+	lcd_w_data(0x00FF&x_star);
+	lcd_w_data(x_end>>8);
+	lcd_w_data(0x00FF&x_end);
 
-	LCD_WR_REG(lcddev.setycmd);
-	LCD_WR_DATA(yStar>>8);
-	LCD_WR_DATA(0x00FF&yStar);
-	LCD_WR_DATA(yEnd>>8);
-	LCD_WR_DATA(0x00FF&yEnd);
+	lcd_w_cmd(g_lcd_param.setycmd);
+	lcd_w_data(y_star>>8);
+	lcd_w_data(0x00FF&y_star);
+	lcd_w_data(y_end>>8);
+	lcd_w_data(0x00FF&y_end);
 
-	LCD_WR_REG(lcddev.wramcmd);	//开始写入GRAM
+	lcd_w_cmd(g_lcd_param.wramcmd);	//开始写入GRAM
 }
 
 /***************************************************************
- * Name:	 LCD_SetCursor()
+ * Name:	 lcd_set_cursor()
  * Input : 光标坐标
  * Output: void
  * Return: void
@@ -319,13 +335,13 @@ void LCD_SetWindows(uint16_t xStar, uint16_t yStar,uint16_t xEnd,uint16_t yEnd)
  * Revise: V1.0
  * Description: 设置光标
  ***************************************************************/
-void LCD_SetCursor(uint16_t Xpos, uint16_t Ypos)
-{	  	    			
-	LCD_SetWindows(Xpos,Ypos,Xpos,Ypos);	
+void lcd_set_cursor(uint16_t Xpos, uint16_t Ypos)
+{
+	lcd_set_windows(Xpos,Ypos,Xpos,Ypos);
 } 
 
 /***************************************************************
- * Name:	 LCD_DrawPoint()
+ * Name:	 lcd_draw_point()
  * Input : 绘制点的位置
  * Output: void
  * Return: void
@@ -333,14 +349,14 @@ void LCD_SetCursor(uint16_t Xpos, uint16_t Ypos)
  * Revise: V1.0
  * Description: 绘制一个点
  ***************************************************************/
-void LCD_DrawPoint(uint16_t x,uint16_t y)
+void lcd_draw_point(uint16_t x,uint16_t y)
 {
-	LCD_SetCursor(x,y);//设置光标位置 
-	Lcd_WriteData_16Bit(POINT_COLOR); 
+	lcd_set_cursor(x,y);	//设置光标位置 
+	lcd_w_data_16bit(POINT_COLOR);
 }
 
 /***************************************************************
- * Name:	 LCD_Fill()
+ * Name:	 lcd_fill()
  * Input : Color:填充的颜色
  * Output: void
  * Return: void
@@ -348,25 +364,23 @@ void LCD_DrawPoint(uint16_t x,uint16_t y)
  * Revise: V1.0
  * Description: 填充屏幕
  ***************************************************************/
-void LCD_Fill(uint16_t Color)
+void lcd_fill(uint16_t Color)
 {
   unsigned int i,m;  
-	LCD_SetWindows(0,0,lcddev.width-1,lcddev.height-1);   
-	LCD_CS_CLR;
+	lcd_set_windows(0,0,g_lcd_param.width-1,g_lcd_param.height-1);   
 	LCD_RS_SET;
-	for(i=0;i<lcddev.height;i++)
+	for(i=0;i<g_lcd_param.height;i++)
 	{
-    for(m=0;m<lcddev.width;m++)
+    for(m=0;m<g_lcd_param.width;m++)
     {	
-			SPI_WriteByte(Color>>8);
-			SPI_WriteByte(Color);
+			spi_w_data(Color>>8);
+			spi_w_data(Color);
 		}
 	}
-	 LCD_CS_SET;
 } 
 
 /***************************************************************
- * Name:	 LCD_RESET()
+ * Name:	 lcd_reset()
  * Input : void
  * Output: void
  * Return: void
@@ -374,7 +388,7 @@ void LCD_Fill(uint16_t Color)
  * Revise: V1.0
  * Description: 复位LCD
  ***************************************************************/
-static void LCD_RESET(void)
+static void lcd_reset(void)
 {
 	LCD_RST_SET;
 	usleep(50000);
@@ -385,61 +399,61 @@ static void LCD_RESET(void)
 }
 
 /***************************************************************
- * Name:	 LCD_direction()
+ * Name:	 lcd_direction()
  * Input : direction:屏幕旋转方向
  * Output: void
  * Return: void
  * Author: hwl
  * Revise: V1.0
- * Description: 复位LCD
+ * Description: 屏幕屏幕方向
  ***************************************************************/
-void LCD_direction(uint8_t direction)
+void lcd_direction(uint8_t direction)
 { 
-	lcddev.setxcmd=0x2A;
-	lcddev.setycmd=0x2B;
-	lcddev.wramcmd=0x2C;
-	lcddev.rramcmd=0x2E;
-	lcddev.dir = direction%4;
-	switch(lcddev.dir)
+	g_lcd_param.setxcmd=0x2A;
+	g_lcd_param.setycmd=0x2B;
+	g_lcd_param.wramcmd=0x2C;
+	g_lcd_param.rramcmd=0x2E;
+	g_lcd_param.dir = direction%4;
+
+	switch(g_lcd_param.dir)
 	{
 		case 0:	//0度
 		{
-			lcddev.width=LCD_W;
-			lcddev.height=LCD_H;		
-			LCD_WriteReg(0x36,(1<<3)|(0<<6)|(0<<7));//BGR==1,MY==0,MX==0,MV==0
+			g_lcd_param.width=LCD_W;
+			g_lcd_param.height=LCD_H;
+			lcd_w_reg(0x36,(1<<3)|(0<<6)|(0<<7));					//BGR==1,MY==0,MX==0,MV==0
 			break;
 		}
 		case 1:	//1-90度
 		{
-			lcddev.width=LCD_H;
-			lcddev.height=LCD_W;
-			LCD_WriteReg(0x36,(1<<3)|(0<<7)|(1<<6)|(1<<5));//BGR==1,MY==1,MX==0,MV==1
+			g_lcd_param.width=LCD_H;
+			g_lcd_param.height=LCD_W;
+			lcd_w_reg(0x36,(1<<3)|(0<<7)|(1<<6)|(1<<5));	//BGR==1,MY==1,MX==0,MV==1
 			break;
 		}
 		case 2:	//2-180度
 		{
-			lcddev.width=LCD_W;
-			lcddev.height=LCD_H;
-			LCD_WriteReg(0x36,(1<<3)|(1<<6)|(1<<7));//BGR==1,MY==0,MX==0,MV==0
+			g_lcd_param.width=LCD_W;
+			g_lcd_param.height=LCD_H;
+			lcd_w_reg(0x36,(1<<3)|(1<<6)|(1<<7));					//BGR==1,MY==0,MX==0,MV==0
 			break;
 		}
-
 		case 3:	//3-270度
 		{
-			lcddev.width=LCD_H;
-			lcddev.height=LCD_W;
-			LCD_WriteReg(0x36,(1<<3)|(1<<7)|(1<<5));//BGR==1,MY==1,MX==0,MV==1
+			g_lcd_param.width=LCD_H;
+			g_lcd_param.height=LCD_W;
+			lcd_w_reg(0x36,(1<<3)|(1<<7)|(1<<5));					//BGR==1,MY==1,MX==0,MV==1
 			break;
 		}
 		default:
 		{
 			break;
 		}
-	}	
-}	 
+	}
+}
 
 /***************************************************************
- * Name:	 LCD_Read_ID()
+ * Name:	 lcd_read_id()
  * Input : void
  * Output: void
  * Return: ID
@@ -447,17 +461,23 @@ void LCD_direction(uint8_t direction)
  * Revise: V1.0
  * Description: 获取屏幕ID
  ***************************************************************/
-static uint16_t LCD_Read_ID(void)
+static uint16_t lcd_read_id(void)
 {
 	uint8_t i,val[3] = {0};
 	uint16_t id;
 	
+	unsigned char tx_buffer = 0;
+	unsigned char rx_buffer = 0;
+
 	for(i=1;i<4;i++)
 	{
-		LCD_WR_REG(0xD9);
-		LCD_WR_DATA(0x10+i);
-		LCD_WR_REG(0xD3);
-		val[i-1] = LCD_RD_DATA();
+		lcd_w_cmd(0xD9);
+
+		lcd_w_data(0x10+i);
+
+		lcd_w_cmd(0xD3);
+
+		val[i-1] = lcd_r_data();
 	}
 
 	id=val[1];
@@ -481,119 +501,118 @@ int drv_lcd_init(void)
 	{
 		LOG_ERROR("LCD GPIO INIT FAIL");
 	}
+	spi_init();
+ 	lcd_reset();
+	printf("READ ID %x\r\n", lcd_read_id());
 
- 	LCD_RESET();
-	printf("READ ID %x\r\n", LCD_Read_ID());
-
-	LCD_WR_REG(0xCF);
-	LCD_WR_DATA(0x00);
-	LCD_WR_DATA(0xC1);
-	LCD_WR_DATA(0x30);
+	lcd_w_cmd(0xCF);
+	lcd_w_data(0x00);
+	lcd_w_data(0xC1);
+	lcd_w_data(0x30);
  
-	LCD_WR_REG(0xED);  
-	LCD_WR_DATA(0x64); 
-	LCD_WR_DATA(0x03); 
-	LCD_WR_DATA(0X12); 
-	LCD_WR_DATA(0X81); 
+	lcd_w_cmd(0xED);
+	lcd_w_data(0x64);
+	lcd_w_data(0x03);
+	lcd_w_data(0X12);
+	lcd_w_data(0X81);
  
-	LCD_WR_REG(0xE8);  
-	LCD_WR_DATA(0x85); 
-	LCD_WR_DATA(0x00); 
-	LCD_WR_DATA(0x78); 
+	lcd_w_cmd(0xE8);
+	lcd_w_data(0x85);
+	lcd_w_data(0x00);
+	lcd_w_data(0x78);
 
-	LCD_WR_REG(0xCB);  
-	LCD_WR_DATA(0x39); 
-	LCD_WR_DATA(0x2C); 
-	LCD_WR_DATA(0x00); 
-	LCD_WR_DATA(0x34); 
-	LCD_WR_DATA(0x02); 
+	lcd_w_cmd(0xCB);
+	lcd_w_data(0x39);
+	lcd_w_data(0x2C);
+	lcd_w_data(0x00);
+	lcd_w_data(0x34);
+	lcd_w_data(0x02);
 	
-	LCD_WR_REG(0xF7);  
-	LCD_WR_DATA(0x20); 
+	lcd_w_cmd(0xF7);
+	lcd_w_data(0x20);
  
-	LCD_WR_REG(0xEA);  
-	LCD_WR_DATA(0x00); 
-	LCD_WR_DATA(0x00); 
+	lcd_w_cmd(0xEA);
+	lcd_w_data(0x00);
+	lcd_w_data(0x00);
 
-	LCD_WR_REG(0xC0);       //Power control 
-	LCD_WR_DATA(0x13);     //VRH[5:0] 
+	lcd_w_cmd(0xC0);
+	lcd_w_data(0x13);
  
-	LCD_WR_REG(0xC1);       //Power control 
-	LCD_WR_DATA(0x13);     //SAP[2:0];BT[3:0] 
+	lcd_w_cmd(0xC1);
+	lcd_w_data(0x13);
  
-	LCD_WR_REG(0xC5);       //VCM control 
-	LCD_WR_DATA(0x22);   //22
-	LCD_WR_DATA(0x35);   //35
+	lcd_w_cmd(0xC5);
+	lcd_w_data(0x22);
+	lcd_w_data(0x35);
  
-	LCD_WR_REG(0xC7);       //VCM control2 
-	LCD_WR_DATA(0xBD);  //AF
+	lcd_w_cmd(0xC7);
+	lcd_w_data(0xBD);
 
-	LCD_WR_REG(0x21);
+	lcd_w_cmd(0x21);
 
-	LCD_WR_REG(0x36);       // Memory Access Control 
-	LCD_WR_DATA(0x08); 
+	lcd_w_cmd(0x36);
+	lcd_w_data(0x08);
 
-	LCD_WR_REG(0xB6);  
-	LCD_WR_DATA(0x0A); 
-	LCD_WR_DATA(0xA2); 
+	lcd_w_cmd(0xB6);
+	lcd_w_data(0x0A);
+	lcd_w_data(0xA2);
 
-	LCD_WR_REG(0x3A);       
-	LCD_WR_DATA(0x55); 
+	lcd_w_cmd(0x3A);
+	lcd_w_data(0x55); 
 
-	LCD_WR_REG(0xF6);  //Interface Control
-	LCD_WR_DATA(0x01); 
-	LCD_WR_DATA(0x30);  //MCU
+	lcd_w_cmd(0xF6);
+	lcd_w_data(0x01);
+	lcd_w_data(0x30);
 
-	LCD_WR_REG(0xB1);       //VCM control 
-	LCD_WR_DATA(0x00); 
-	LCD_WR_DATA(0x1B); 
+	lcd_w_cmd(0xB1);
+	lcd_w_data(0x00);
+	lcd_w_data(0x1B);
  
-	LCD_WR_REG(0xF2);       // 3Gamma Function Disable 
-	LCD_WR_DATA(0x00); 
+	lcd_w_cmd(0xF2);
+	lcd_w_data(0x00);
  
-	LCD_WR_REG(0x26);       //Gamma curve selected 
-	LCD_WR_DATA(0x01); 
+	lcd_w_cmd(0x26);
+	lcd_w_data(0x01);
  
-	LCD_WR_REG(0xE0);       //Set Gamma 
-	LCD_WR_DATA(0x0F); 
-	LCD_WR_DATA(0x35); 
-	LCD_WR_DATA(0x31); 
-	LCD_WR_DATA(0x0B); 
-	LCD_WR_DATA(0x0E); 
-	LCD_WR_DATA(0x06); 
-	LCD_WR_DATA(0x49); 
-	LCD_WR_DATA(0xA7); 
-	LCD_WR_DATA(0x33); 
-	LCD_WR_DATA(0x07); 
-	LCD_WR_DATA(0x0F); 
-	LCD_WR_DATA(0x03); 
-	LCD_WR_DATA(0x0C); 
-	LCD_WR_DATA(0x0A); 
-	LCD_WR_DATA(0x00); 
+	lcd_w_cmd(0xE0);
+	lcd_w_data(0x0F);
+	lcd_w_data(0x35);
+	lcd_w_data(0x31);
+	lcd_w_data(0x0B);
+	lcd_w_data(0x0E);
+	lcd_w_data(0x06);
+	lcd_w_data(0x49);
+	lcd_w_data(0xA7);
+	lcd_w_data(0x33);
+	lcd_w_data(0x07);
+	lcd_w_data(0x0F);
+	lcd_w_data(0x03);
+	lcd_w_data(0x0C);
+	lcd_w_data(0x0A);
+	lcd_w_data(0x00);
  
-	LCD_WR_REG(0XE1);       //Set Gamma 
-	LCD_WR_DATA(0x00); 
-	LCD_WR_DATA(0x0A); 
-	LCD_WR_DATA(0x0F); 
-	LCD_WR_DATA(0x04); 
-	LCD_WR_DATA(0x11); 
-	LCD_WR_DATA(0x08); 
-	LCD_WR_DATA(0x36); 
-	LCD_WR_DATA(0x58); 
-	LCD_WR_DATA(0x4D); 
-	LCD_WR_DATA(0x07); 
-	LCD_WR_DATA(0x10); 
-	LCD_WR_DATA(0x0C); 
-	LCD_WR_DATA(0x32); 
-	LCD_WR_DATA(0x34); 
-	LCD_WR_DATA(0x0F); 
+	lcd_w_cmd(0XE1);
+	lcd_w_data(0x00);
+	lcd_w_data(0x0A);
+	lcd_w_data(0x0F);
+	lcd_w_data(0x04);
+	lcd_w_data(0x11);
+	lcd_w_data(0x08);
+	lcd_w_data(0x36);
+	lcd_w_data(0x58);
+	lcd_w_data(0x4D);
+	lcd_w_data(0x07);
+	lcd_w_data(0x10);
+	lcd_w_data(0x0C);
+	lcd_w_data(0x32);
+	lcd_w_data(0x34);
+	lcd_w_data(0x0F);
 
-	LCD_WR_REG(0x11);       //Exit Sleep 
-	delay_ms(120); 
-	LCD_WR_REG(0x29);       //Display on 
+	lcd_w_cmd(0x11);
+	delay_ms(120);
+	lcd_w_cmd(0x29);
 
-  LCD_direction(0);//设置LCD显示方向 
+	lcd_direction(0);	//设置LCD显示方向 
 	
-	LCD_Fill(BLUE);//清全屏白色
-
+	lcd_fill(DARKBLUE);
 }
