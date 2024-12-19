@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <string.h>
 #include <linux/spi/spidev.h>
 
 static M_GPIO_INFO_T lcd_rst_info = {
@@ -128,7 +129,7 @@ static int spi_init(void)
 	}
 
 	//设置 SPI 最高工作频率
-	uint32_t speed = 10000000;
+	uint32_t speed = 50000000;
 	ret = ioctl(g_spi_fd, SPI_IOC_WR_MAX_SPEED_HZ, &speed);
 	if (ret == -1)
 	{
@@ -158,7 +159,7 @@ static void spi_transfer(int g_spi_fd, uint8_t const *tx, uint8_t const *rx, siz
 		.rx_buf = (unsigned long)rx,
 		.len = len,
 		.delay_usecs = 0,
-		.speed_hz = 10000000,
+		.speed_hz = 24000000,
 		.bits_per_word = 8,
 		.tx_nbits = 1,
 		.rx_nbits = 1
@@ -407,13 +408,17 @@ void lcd_fill(uint16_t color)
 	lcd_set_windows(0,0,g_lcd_param.width-1,g_lcd_param.height-1);
 	LCD_CS_CLR;
 	LCD_RS_SET;
+	uint8_t tx_buf[LCD_W * 2] = {0x00};
+	for(int i = 0; i < LCD_W; i++)
+	{
+		tx_buf[i*2] = color>>8;
+		tx_buf[i*2+1] = color;
+	}
+	uint8_t rx_buf[LCD_W * 2] = {0x00};
+
 	for(i=0;i<g_lcd_param.height;i++)
 	{
-		for(m=0;m<g_lcd_param.width;m++)
-		{
-			spi_w_data(color>>8);
-			spi_w_data(color);
-		}
+		spi_transfer(g_spi_fd, tx_buf, rx_buf, LCD_W * 2);
 	}
 	LCD_CS_SET;
 } 
