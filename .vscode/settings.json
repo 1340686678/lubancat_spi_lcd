@@ -9,6 +9,7 @@
 		"error.h": "c",
 		"log.h": "c",
 		"drv_init.h": "c",
-		"stdint.h": "c"
+		"stdint.h": "c",
+		"drv_lcd_touch.h": "c"
 	}
 }
